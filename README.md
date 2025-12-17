@@ -13,4 +13,3 @@
 前往 [Releases](https://github.com/yourname/qianchuan_processor/releases) 下载对应系统版本：
 
 - **Windows**: `qianchuan_processor.exe`
-- **macOS**: `qianchuan_processor.app`
