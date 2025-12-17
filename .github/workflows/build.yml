@@ -55,10 +55,14 @@ jobs:
       - name: Download FFmpeg for macOS
         run: |
           mkdir -p ffmpeg
-          curl -L https://github.com/eugeneware/ffmpeg-static/releases/download/b5.1.0/ffmpeg-b5.1.0-macos-x64.zip -o ffmpeg.zip
+          curl -L \
+            -H "Accept: application/octet-stream" \
+            -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" \
+            https://github.com/eugeneware/ffmpeg-static/releases/download/b5.1.0/ffmpeg-b5.1.0-macos-x64.zip \
+            -o ffmpeg.zip
           unzip ffmpeg.zip
           mv ffmpeg ffprobe ffmpeg/
-          chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
+          chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe      
       - name: Build executable
         run: |
           pyinstaller --onefile \
