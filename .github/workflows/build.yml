@@ -40,34 +40,3 @@ jobs:
         with:
           name: qianchuan_processor-windows
           path: dist/qianchuan_processor.exe
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: |
-          pip install pyinstaller ffmpeg-python
-      - name: Download FFmpeg for macOS
-        run: |
-          mkdir -p ffmpeg
-          curl -L https://gist.githubusercontent.com/qwen-assistant/8f5d1e8a7c3b4e9f0a1b2c3d4e5f6a7b/raw/ffmpeg-macos-x64-with-ffprobe.zip -o ffmpeg.zip
-          unzip ffmpeg.zip -d ffmpeg
-          chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
-      - name: Build executable
-        run: |
-          pyinstaller --onefile \
-            --name qianchuan_processor \
-            --add-data "ffmpeg:ffmpeg" \
-            --hidden-import=ffmpeg \
-            --hidden-import=tkinter \
-            main.py
-      - name: Upload macOS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: qianchuan_processor-macos
-          path: dist/qianchuan_processor
