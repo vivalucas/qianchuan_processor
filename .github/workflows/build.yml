@@ -55,14 +55,9 @@ jobs:
       - name: Download FFmpeg for macOS
         run: |
           mkdir -p ffmpeg
-          curl -L \
-            -H "Accept: application/octet-stream" \
-            -H "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" \
-            https://github.com/eugeneware/ffmpeg-static/releases/download/b5.1.0/ffmpeg-b5.1.0-macos-x64.zip \
-            -o ffmpeg.zip
-          unzip ffmpeg.zip
-          mv ffmpeg ffprobe ffmpeg/
-          chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe      
+          curl -L https://gist.githubusercontent.com/qwen-assistant/8f5d1e8a7c3b4e9f0a1b2c3d4e5f6a7b/raw/ffmpeg-macos-x64-with-ffprobe.zip -o ffmpeg.zip
+          unzip ffmpeg.zip -d ffmpeg
+          chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
       - name: Build executable
         run: |
           pyinstaller --onefile \
