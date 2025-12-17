@@ -20,10 +20,13 @@ jobs:
       - name: Download FFmpeg for Windows
         run: |
           curl -L https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip -o ffmpeg.zip
-          7z x ffmpeg.zip -o_temp
+          7z x ffmpeg.zip -o_temp -y
+          # 自动查找包含 ffmpeg.exe 的 bin 目录
+          $binDir = Get-ChildItem _temp -Recurse -Include "bin" -Directory | Where-Object { Test-Path "$_\ffmpeg.exe" } | Select-Object -First 1
+          if (-not $binDir) { throw "❌ 未找到 bin 目录或 ffmpeg.exe" }
           mkdir ffmpeg
-          copy _temp\bin\ffmpeg.exe ffmpeg\
-          copy _temp\bin\ffprobe.exe ffmpeg\
+          copy "$($binDir.FullName)\ffmpeg.exe" ffmpeg\
+          copy "$($binDir.FullName)\ffprobe.exe" ffmpeg\
       - name: Build executable
         run: |
           pyinstaller --onefile ^
@@ -51,10 +54,9 @@ jobs:
           pip install pyinstaller ffmpeg-python
       - name: Download FFmpeg for macOS
         run: |
-          curl -LO https://evermeet.cx/ffmpeg/ffmpeg-6.1.1.zip
-          unzip ffmpeg-6.1.1.zip
-          mkdir ffmpeg
-          mv ffmpeg ffprobe ffmpeg/
+          mkdir -p ffmpeg
+          curl -L https://evermeet.cx/ffmpeg/ffmpeg-6.1.1.gz | gzip -d > ffmpeg/ffmpeg
+          curl -L https://evermeet.cx/ffprobe/ffprobe-6.1.1.gz | gzip -d > ffmpeg/ffprobe
           chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
       - name: Build executable
         run: |
