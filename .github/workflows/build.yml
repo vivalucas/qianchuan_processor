@@ -29,17 +29,17 @@ jobs:
           copy "$($binDir.FullName)\ffprobe.exe" ffmpeg\
       - name: Build executable
         run: |
-          pyinstaller --onefile ^
-            --name qianchuan_processor ^
-            --add-data "ffmpeg;ffmpeg" ^
-            --hidden-import=ffmpeg ^
-            --hidden-import=tkinter ^
+          pyinstaller --onefile `
+            --name qianchuan_processor `
+            --add-data "ffmpeg;ffmpeg" `
+            --hidden-import=ffmpeg `
+            --hidden-import=tkinter `
             main.py
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: qianchuan_processor-windows
-          path: dist/
+          path: dist/qianchuan_processor.exe
 
   build-macos:
     runs-on: macos-latest
@@ -55,8 +55,9 @@ jobs:
       - name: Download FFmpeg for macOS
         run: |
           mkdir -p ffmpeg
-          curl -L https://evermeet.cx/ffmpeg/ffmpeg-6.1.1.gz | gzip -d > ffmpeg/ffmpeg
-          curl -L https://evermeet.cx/ffprobe/ffprobe-6.1.1.gz | gzip -d > ffmpeg/ffprobe
+          curl -L https://github.com/eugeneware/ffmpeg-static/releases/download/b5.1.0/ffmpeg-b5.1.0-macos-x64.zip -o ffmpeg.zip
+          unzip ffmpeg.zip
+          mv ffmpeg ffprobe ffmpeg/
           chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
       - name: Build executable
         run: |
@@ -70,4 +71,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qianchuan_processor-macos
-          path: dist/
+          path: dist/qianchuan_processor
