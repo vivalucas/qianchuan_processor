@@ -1,0 +1,71 @@
+name: Build qianchuan_processor
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller ffmpeg-python
+      - name: Download FFmpeg for Windows
+        run: |
+          curl -L https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip -o ffmpeg.zip
+          7z x ffmpeg.zip -o_temp
+          mkdir ffmpeg
+          copy _temp\bin\ffmpeg.exe ffmpeg\
+          copy _temp\bin\ffprobe.exe ffmpeg\
+      - name: Build executable
+        run: |
+          pyinstaller --onefile ^
+            --name qianchuan_processor ^
+            --add-data "ffmpeg;ffmpeg" ^
+            --hidden-import=ffmpeg ^
+            --hidden-import=tkinter ^
+            main.py
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qianchuan_processor-windows
+          path: dist/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller ffmpeg-python
+      - name: Download FFmpeg for macOS
+        run: |
+          curl -LO https://evermeet.cx/ffmpeg/ffmpeg-6.1.1.zip
+          unzip ffmpeg-6.1.1.zip
+          mkdir ffmpeg
+          mv ffmpeg ffprobe ffmpeg/
+          chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
+      - name: Build executable
+        run: |
+          pyinstaller --onefile \
+            --name qianchuan_processor \
+            --add-data "ffmpeg:ffmpeg" \
+            --hidden-import=ffmpeg \
+            --hidden-import=tkinter \
+            main.py
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qianchuan_processor-macos
+          path: dist/
