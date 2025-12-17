@@ -10,6 +10,6 @@
 - 无需安装 FFmpeg，开箱即用
 
 ## 📥 下载
-前往 [Releases](https://github.com/yourname/qianchuan_processor/releases) 下载对应系统版本：
+前往 [Releases](https://github.com/vivalucas/qianchuan_processor/releases) 下载对应系统版本：
 
 - **Windows**: `qianchuan_processor.exe`
