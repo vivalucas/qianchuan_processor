@@ -14,7 +14,3 @@
 
 - **Windows**: `qianchuan_processor.exe`
 - **macOS**: `qianchuan_processor.app`
-
-## 🛠 开发者
-- 问题反馈：lucas6.zju@vip.163.com
-- 项目地址：https://github.com/yourname/qianchuan_processor
