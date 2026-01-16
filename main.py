@@ -4,9 +4,13 @@ import sys
 import shutil
 import subprocess
 import json
-import tkinter as tk
-from tkinter import filedialog, messagebox
 from pathlib import Path
+
+# 延迟导入tkinter，减少启动时间
+def import_tkinter():
+    global tk, filedialog, messagebox
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
 
 
 # 注意：不再直接依赖 ffmpeg.probe，改用 subprocess 调用 ffprobe（更可靠）
@@ -127,7 +131,7 @@ def process_video(input_path, output_path):
             print(f"❌ 复制失败: {e}")
         return
 
-    # 使用 ffmpeg-python 进行处理（这部分在打包后通常没问题）
+    # 延迟导入ffmpeg，减少启动时间
     try:
         import ffmpeg as ffmpeg_lib
     except ImportError:
@@ -178,6 +182,7 @@ def process_video(input_path, output_path):
 
 
 def process_all_videos(input_dir: Path, output_dir: Path):
+    import_tkinter()
     if not input_dir.exists():
         messagebox.showerror("错误", "输入文件夹不存在！")
         return
@@ -209,11 +214,13 @@ def process_all_videos(input_dir: Path, output_dir: Path):
         print(f"\n--- 处理: {video_file.name} ---")
         process_video(str(video_file), str(output_file))
 
+    import_tkinter()
     messagebox.showinfo("完成", f"所有视频处理完毕！\n共处理 {len(videos)} 个文件。")
 
 
 # =============== GUI ===============
 def select_folder(title):
+    import_tkinter()
     root = tk.Tk()
     root.withdraw()
     folder = filedialog.askdirectory(title=title)
