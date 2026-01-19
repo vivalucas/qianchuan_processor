@@ -50,6 +50,7 @@ def get_video_info(video_path):
             print(f"❌ ffprobe 不存在: {FFPROBE_PATH}")
             return None
 
+        # 不使用text=True，手动处理编码，避免gbk解码错误
         result = subprocess.run([
             FFPROBE_PATH,
             '-v', 'quiet',
@@ -57,10 +58,14 @@ def get_video_info(video_path):
             '-show_streams',
             '-show_format',
             video_path
-        ], capture_output=True, text=True, check=True)
+        ], capture_output=True, check=True)
 
+        # 手动解码，使用utf-8并忽略错误
+        stdout_bytes = result.stdout
+        stdout_str = stdout_bytes.decode('utf-8', errors='ignore') if stdout_bytes else ''
+        
         # 修复JSON解析错误：替换未转义的反斜杠
-        json_str = result.stdout.replace('\\', '\\\\')
+        json_str = stdout_str.replace('\\', '\\\\') if stdout_str else ''
         probe_data = json.loads(json_str)
         video_stream = None
         has_audio = False
