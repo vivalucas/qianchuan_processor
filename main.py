@@ -4,6 +4,7 @@ import sys
 import shutil
 import subprocess
 import json
+import re
 from pathlib import Path
 
 # 延迟导入tkinter，减少启动时间
@@ -64,9 +65,63 @@ def get_video_info(video_path):
         stdout_bytes = result.stdout
         stdout_str = stdout_bytes.decode('utf-8', errors='ignore') if stdout_bytes else ''
         
-        # 修复JSON解析错误：替换未转义的反斜杠
-        json_str = stdout_str.replace('\\', '\\\\') if stdout_str else ''
-        probe_data = json.loads(json_str)
+        # 清理和修复JSON字符串
+        if not stdout_str:
+            print(f"⚠️ ffprobe 未返回数据: {video_path}")
+            return None
+            
+        # 1. 移除可能的BOM（Byte Order Mark）
+        json_str = stdout_str.lstrip('\ufeff')
+        
+        # 2. 移除所有控制字符，只保留制表符、换行符和回车符
+        json_str = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', json_str)
+        
+        # 3. 修复JSON解析的核心问题：使用更简单可靠的方法处理ffprobe输出
+        # ffprobe输出的JSON格式问题通常出在字符串值中包含特殊字符
+        try:
+            # 尝试直接解析原始JSON
+            probe_data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            # 解析失败，尝试更严格的清理
+            print(f"⚠️ 原始JSON解析失败，尝试修复: {video_path}")
+            
+            # 修复1: 移除所有可能导致问题的特殊字符，只保留ASCII可打印字符
+            json_str = re.sub(r'[^\x20-\x7e]', '', json_str)
+            
+            # 修复2: 修复未转义的引号 - 使用更精确的正则表达式
+            # 匹配键值对中的字符串值，确保只替换值内的未转义引号
+            json_str = re.sub(r'"([^"]*?)(?<!\\)"', lambda m: '"' + m.group(1).replace('"', '\\"') + '"', json_str)
+            
+            # 修复3: 修复可能的尾随逗号
+            json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
+            
+            # 修复4: 确保JSON只包含一个顶级对象
+            # 有些ffprobe输出可能包含额外内容，只保留第一个完整的JSON对象
+            json_match = re.search(r'\{[\s\S]*?\}', json_str)
+            if json_match:
+                json_str = json_match.group(0)
+            
+            try:
+                # 再次尝试解析修复后的JSON
+                probe_data = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                # 仍然解析失败，打印详细错误信息
+                print(f"❌ JSON修复后仍解析失败: {video_path}")
+                print(f"   错误位置: 行 {e.lineno}, 列 {e.colno}")
+                print(f"   错误信息: {e.msg}")
+                # 打印出错位置附近的内容
+                lines = json_str.split('\n')
+                if e.lineno <= len(lines):
+                    start = max(0, e.lineno - 2)
+                    end = min(len(lines), e.lineno + 1)
+                    print(f"   上下文 ({start+1}-{end}行):")
+                    for i in range(start, end):
+                        line = lines[i]
+                        marker = "--->" if i == e.lineno - 1 else "    "
+                        print(f"   {marker} {i+1}: {line}")
+                        if i == e.lineno - 1:
+                            print(f"   {marker}      {' '*(e.colno-1)}^ 错误位置")
+                return None
         video_stream = None
         has_audio = False
         for stream in probe_data.get('streams', []):
@@ -173,11 +228,21 @@ def process_video(input_path, output_path):
     else:
         output_opts = {}
 
+    # 处理音频：如果原视频有音频，保留音频轨道
+    has_audio = info.get('has_audio', False)
+    if has_audio:
+        # 保留音频轨道，不做转码处理
+        audio = input_stream.audio
+        output_args = [video, audio, output_path]
+    else:
+        # 没有音频，只处理视频轨道
+        output_args = [video, output_path]
+
     print(f"🔄 正在处理: {input_path} → {output_path}")
     try:
         (
             ffmpeg_lib
-            .output(video, output_path, **output_opts)
+            .output(*output_args, **output_opts)
             .overwrite_output()
             .run(cmd=FFMPEG_PATH, quiet=True)
         )
