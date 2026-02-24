@@ -171,6 +171,9 @@ def is_valid_aspect_ratio(w, h):
 
 
 def process_video(input_path, output_path):
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
     info = get_video_info(input_path)
     if not info:
         print(f"❌ 跳过无效视频: {input_path}")
@@ -260,31 +263,46 @@ def process_all_videos(input_dir: Path, output_dir: Path):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     video_extensions = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv"}
-    videos = [f for f in input_dir.rglob("*") if f.suffix.lower() in video_extensions]
 
-    if not videos:
+    video_list = []
+    
+    for item in input_dir.iterdir():
+        if item.is_file() and item.suffix.lower() in video_extensions:
+            video_list.append((item, Path("")))
+        elif item.is_dir():
+            for sub_item in item.iterdir():
+                if sub_item.is_file() and sub_item.suffix.lower() in video_extensions:
+                    video_list.append((sub_item, item.relative_to(input_dir)))
+                elif sub_item.is_dir():
+                    for sub_sub_item in sub_item.iterdir():
+                        if sub_sub_item.is_file() and sub_sub_item.suffix.lower() in video_extensions:
+                            video_list.append((sub_sub_item, Path(item.name) / sub_item.relative_to(item)))
+
+    if not video_list:
         messagebox.showinfo("提示", "输入文件夹中没有找到视频文件！")
         return
 
-    for video_file in videos:
-        # 先获取视频信息，检查是否有音频
+    processed_count = 0
+
+    for video_file, rel_path in video_list:
         video_info = get_video_info(str(video_file))
         has_audio = video_info.get('has_audio', True) if video_info else True
         
-        # 生成输出文件名
         if has_audio:
-            output_file = output_dir / video_file.name
+            output_file = output_dir / rel_path / video_file.name
         else:
-            # 没有音频，在文件名后添加醒目标识（重复两遍+Windows允许的符号）
             output_filename = f"{video_file.stem}_【无音频】【无音频】{video_file.suffix}"
-            output_file = output_dir / output_filename
+            output_file = output_dir / rel_path / output_filename
             print(f"🔇 检测到无音频视频: {video_file.name}")
             print(f"📝 将添加标识并重命名为: {output_filename}")
             
         print(f"\n--- 处理: {video_file.name} ---")
+        if rel_path:
+            print(f"📂 路径: {rel_path}")
         process_video(str(video_file), str(output_file))
+        processed_count += 1
 
-    messagebox.showinfo("完成", f"所有视频处理完毕！\n共处理 {len(videos)} 个文件。")
+    messagebox.showinfo("完成", f"所有视频处理完毕！\n共处理 {processed_count} 个文件。")
 
 
 # =============== GUI ===============
