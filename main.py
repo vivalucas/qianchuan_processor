@@ -284,7 +284,6 @@ def process_all_videos(input_dir: Path, output_dir: Path):
         print(f"\n--- 处理: {video_file.name} ---")
         process_video(str(video_file), str(output_file))
 
-    import_tkinter()
     messagebox.showinfo("完成", f"所有视频处理完毕！\n共处理 {len(videos)} 个文件。")
 
 
@@ -308,7 +307,7 @@ def main_gui():
         "│    📍 2. 指定输出目录                            \n"
         "│    📍 3. 等待处理完成                            \n"
         "├────────────────────────────────────────────────┤\n"
-        "│  💡 新增功能：V1.1 新增无音频标识 | 批量处理      \n"
+        "│  💡 新增功能：V1.2 修复GUI卡死问题 | 批量处理      \n"
         "│  📧 问题反馈：lucas6.zju@vip.163.com            \n"
         "├────────────────────────────────────────────────┤\n"
         "│  ⏳ 正在启动工具...                              \n"
