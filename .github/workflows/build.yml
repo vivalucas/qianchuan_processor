@@ -31,7 +31,7 @@ jobs:
       - name: Build executable
         run: |
           pyinstaller --onefile `
-            --name qianchuan_processor `
+            --name qianchuan_processor_${{ github.ref_name }} `
             --add-data "ffmpeg;ffmpeg" `
             --hidden-import=ffmpeg `
             --hidden-import=tkinter `
@@ -43,8 +43,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qianchuan_processor-windows
-          path: dist/qianchuan_processor.exe
+          name: qianchuan_processor-windows-${{ github.ref_name }}
+          path: dist/qianchuan_processor_${{ github.ref_name }}.exe
 
   release:
     needs: build-windows
@@ -54,7 +54,7 @@ jobs:
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: qianchuan_processor-windows
+          name: qianchuan_processor-windows-${{ github.ref_name }}
           path: dist/
 
       - name: Create Release
@@ -62,5 +62,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }} 
         with:
-          files: dist/qianchuan_processor.exe
+          files: dist/qianchuan_processor_${{ github.ref_name }}.exe
           generate_release_notes: true
