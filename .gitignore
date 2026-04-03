@@ -31,3 +31,6 @@ logs/
 .env
 .env.local
 .env.*.local
+
+# Virtual environment (uv)
+.venv/
