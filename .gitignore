@@ -34,3 +34,54 @@ logs/
 
 # Virtual environment (uv)
 .venv/
+
+# venv
+venv/
+
+# uv cache
+.uv/
+
+# Python 补充
+*.egg-info/
+
+# js
+node_modules/
+.pnp/
+.pnp.js
+.next/
+out/
+.nuxt/
+
+# go
+go.sum
+vendor/
+
+# 包管理器缓存
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 构建产物补充
+coverage/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+
+# IDE 补充
+*.iml
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+
+# AI
+.claude/
+.cursor/
+.continue/
+.aider*
+.copilot/
+.codeium/
+.tabnine/
+.supermaven/
