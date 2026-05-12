@@ -46,8 +46,53 @@ jobs:
           name: qianchuan_processor-windows-${{ github.ref_name }}
           path: dist/qianchuan_processor_${{ github.ref_name }}.exe
 
+  build-macos-arm64:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller ffmpeg-python
+      - name: Download static FFmpeg for macOS arm64
+        run: |
+          npm install --no-save --no-package-lock ffmpeg-static ffprobe-static
+          mkdir -p ffmpeg
+          cp "$(node -p "require('ffmpeg-static')")" ffmpeg/ffmpeg
+          cp "$(node -p "require('ffprobe-static').path")" ffmpeg/ffprobe
+          chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
+          file ffmpeg/ffmpeg
+          file ffmpeg/ffprobe
+      - name: Build macOS arm64 executable
+        run: |
+          pyinstaller --onefile \
+            --name qianchuan_processor_${{ github.ref_name }}_macos_arm64 \
+            --add-data "ffmpeg:ffmpeg" \
+            --hidden-import=ffmpeg \
+            --hidden-import=tkinter \
+            --optimize 2 \
+            --exclude-module=pip \
+            --exclude-module=setuptools \
+            --exclude-module=distutils \
+            main.py
+          chmod +x dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64
+          tar -czf dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.tar.gz -C dist qianchuan_processor_${{ github.ref_name }}_macos_arm64
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qianchuan_processor-macos-arm64-${{ github.ref_name }}
+          path: dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.tar.gz
+
   release:
-    needs: build-windows
+    needs: [build-windows, build-macos-arm64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -57,10 +102,18 @@ jobs:
           name: qianchuan_processor-windows-${{ github.ref_name }}
           path: dist/
 
+      - name: Download macOS arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: qianchuan_processor-macos-arm64-${{ github.ref_name }}
+          path: dist/
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }} 
         with:
-          files: dist/qianchuan_processor_${{ github.ref_name }}.exe
+          files: |
+            dist/qianchuan_processor_${{ github.ref_name }}.exe
+            dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.tar.gz
           generate_release_notes: true

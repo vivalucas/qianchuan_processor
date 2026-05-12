@@ -5,7 +5,19 @@ import shutil
 import subprocess
 import json
 import re
+import time
+from fractions import Fraction
 from pathlib import Path
+
+
+def configure_console_output():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
+configure_console_output()
 
 # 延迟导入tkinter，减少启动时间
 def import_tkinter():
@@ -42,6 +54,91 @@ TARGET_FPS = 30
 TARGET_BITRATE_K = 1000
 MIN_BITRATE_K = 516
 ASPECT_RATIO_TOL = 0.01
+FFPROBE_TIMEOUT_SECONDS = 60
+TRANSCODE_MIN_TIMEOUT_SECONDS = 10 * 60
+TRANSCODE_MAX_TIMEOUT_SECONDS = 2 * 60 * 60
+PROGRESS_LOG_INTERVAL_SECONDS = 30
+
+
+def parse_frame_rate(frame_rate):
+    """Safely parse ffprobe frame-rate strings such as 30000/1001."""
+    try:
+        fps = float(Fraction(str(frame_rate)))
+        return fps if fps > 0 else float(TARGET_FPS)
+    except (ValueError, ZeroDivisionError):
+        return float(TARGET_FPS)
+
+
+def parse_ffprobe_json(stdout_bytes):
+    """Parse ffprobe JSON while tolerating BOMs and stray control characters."""
+    stdout_str = stdout_bytes.decode('utf-8', errors='ignore') if stdout_bytes else ''
+    if not stdout_str:
+        return None
+
+    json_str = stdout_str.lstrip('\ufeff')
+    json_str = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', json_str)
+
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        start = json_str.find('{')
+        if start == -1:
+            raise
+        decoder = json.JSONDecoder()
+        probe_data, _ = decoder.raw_decode(json_str[start:])
+        return probe_data
+
+
+def format_elapsed(seconds):
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}小时{minutes}分{seconds}秒"
+    if minutes:
+        return f"{minutes}分{seconds}秒"
+    return f"{seconds}秒"
+
+
+def get_transcode_timeout_seconds(info):
+    duration = info.get('duration_seconds') or 0
+    if duration <= 0:
+        return TRANSCODE_MAX_TIMEOUT_SECONDS
+    return min(
+        TRANSCODE_MAX_TIMEOUT_SECONDS,
+        max(TRANSCODE_MIN_TIMEOUT_SECONDS, int(duration * 20 + 300))
+    )
+
+
+def run_ffmpeg_with_progress(command, input_path, timeout_seconds):
+    start_time = time.monotonic()
+    next_progress_time = start_time + PROGRESS_LOG_INTERVAL_SECONDS
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    while True:
+        return_code = process.poll()
+        if return_code is not None:
+            if return_code == 0:
+                return True
+            print(f"❌ ffmpeg 退出码 {return_code}: {input_path}")
+            return False
+
+        now = time.monotonic()
+        elapsed = now - start_time
+        if elapsed >= timeout_seconds:
+            process.kill()
+            process.wait()
+            print(f"⏱️ 处理超时，已跳过: {input_path}（耗时 {format_elapsed(elapsed)}）")
+            return False
+
+        if now >= next_progress_time:
+            print(f"⏳ 仍在处理: {input_path}（已耗时 {format_elapsed(elapsed)}）")
+            next_progress_time = now + PROGRESS_LOG_INTERVAL_SECONDS
+
+        time.sleep(1)
 
 
 def get_video_info(video_path):
@@ -59,69 +156,13 @@ def get_video_info(video_path):
             '-show_streams',
             '-show_format',
             video_path
-        ], capture_output=True, check=True)
+        ], capture_output=True, check=True, timeout=FFPROBE_TIMEOUT_SECONDS)
 
-        # 手动解码，使用utf-8并忽略错误
-        stdout_bytes = result.stdout
-        stdout_str = stdout_bytes.decode('utf-8', errors='ignore') if stdout_bytes else ''
-        
-        # 清理和修复JSON字符串
-        if not stdout_str:
+        probe_data = parse_ffprobe_json(result.stdout)
+        if not probe_data:
             print(f"⚠️ ffprobe 未返回数据: {video_path}")
             return None
-            
-        # 1. 移除可能的BOM（Byte Order Mark）
-        json_str = stdout_str.lstrip('\ufeff')
-        
-        # 2. 移除所有控制字符，只保留制表符、换行符和回车符
-        json_str = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', json_str)
-        
-        # 3. 修复JSON解析的核心问题：使用更简单可靠的方法处理ffprobe输出
-        # ffprobe输出的JSON格式问题通常出在字符串值中包含特殊字符
-        try:
-            # 尝试直接解析原始JSON
-            probe_data = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            # 解析失败，尝试更严格的清理
-            print(f"⚠️ 原始JSON解析失败，尝试修复: {video_path}")
-            
-            # 修复1: 移除所有可能导致问题的特殊字符，只保留ASCII可打印字符
-            json_str = re.sub(r'[^\x20-\x7e]', '', json_str)
-            
-            # 修复2: 修复未转义的引号 - 使用更精确的正则表达式
-            # 匹配键值对中的字符串值，确保只替换值内的未转义引号
-            json_str = re.sub(r'"([^"]*?)(?<!\\)"', lambda m: '"' + m.group(1).replace('"', '\\"') + '"', json_str)
-            
-            # 修复3: 修复可能的尾随逗号
-            json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
-            
-            # 修复4: 确保JSON只包含一个顶级对象
-            # 有些ffprobe输出可能包含额外内容，只保留第一个完整的JSON对象
-            json_match = re.search(r'\{[\s\S]*?\}', json_str)
-            if json_match:
-                json_str = json_match.group(0)
-            
-            try:
-                # 再次尝试解析修复后的JSON
-                probe_data = json.loads(json_str)
-            except json.JSONDecodeError as e:
-                # 仍然解析失败，打印详细错误信息
-                print(f"❌ JSON修复后仍解析失败: {video_path}")
-                print(f"   错误位置: 行 {e.lineno}, 列 {e.colno}")
-                print(f"   错误信息: {e.msg}")
-                # 打印出错位置附近的内容
-                lines = json_str.split('\n')
-                if e.lineno <= len(lines):
-                    start = max(0, e.lineno - 2)
-                    end = min(len(lines), e.lineno + 1)
-                    print(f"   上下文 ({start+1}-{end}行):")
-                    for i in range(start, end):
-                        line = lines[i]
-                        marker = "--->" if i == e.lineno - 1 else "    "
-                        print(f"   {marker} {i+1}: {line}")
-                        if i == e.lineno - 1:
-                            print(f"   {marker}      {' '*(e.colno-1)}^ 错误位置")
-                return None
+
         video_stream = None
         has_audio = False
         for stream in probe_data.get('streams', []):
@@ -136,23 +177,29 @@ def get_video_info(video_path):
         width = int(video_stream.get('width', 0))
         height = int(video_stream.get('height', 0))
         r_frame_rate = video_stream.get('r_frame_rate', '30/1')
-        try:
-            fps = eval(r_frame_rate) if '/' in r_frame_rate else float(r_frame_rate)
-        except:
-            fps = 30.0
+        fps = parse_frame_rate(r_frame_rate)
 
         bitrate_str = video_stream.get('bit_rate') or probe_data.get('format', {}).get('bit_rate')
         bitrate_kbps = int(bitrate_str) // 1000 if bitrate_str and bitrate_str.isdigit() else 0
+        duration_str = probe_data.get('format', {}).get('duration')
+        try:
+            duration_seconds = float(duration_str) if duration_str else 0
+        except ValueError:
+            duration_seconds = 0
 
         return {
             'width': width,
             'height': height,
             'bitrate_kbps': bitrate_kbps,
             'fps': fps,
-            'has_audio': has_audio
+            'has_audio': has_audio,
+            'duration_seconds': duration_seconds
         }
     except subprocess.CalledProcessError as e:
         print(f"⚠️ ffprobe 执行失败 {video_path}: {e}")
+        return None
+    except subprocess.TimeoutExpired:
+        print(f"⏱️ ffprobe 超时，跳过视频: {video_path}")
         return None
     except Exception as e:
         print(f"⚠️ 无法解析视频信息 {video_path}: {e}")
@@ -170,17 +217,25 @@ def is_valid_aspect_ratio(w, h):
     return abs(ratio - target_ratio) <= ASPECT_RATIO_TOL
 
 
-def process_video(input_path, output_path):
+def process_video(input_path, output_path, info=None):
     output_file = Path(output_path)
+    input_file = Path(input_path)
+    if input_file.resolve() == output_file.resolve():
+        print(f"❌ 输出文件与输入文件相同，跳过以避免覆盖原视频: {input_path}")
+        return False
+
     output_file.parent.mkdir(parents=True, exist_ok=True)
     
-    info = get_video_info(input_path)
+    info = info or get_video_info(input_path)
     if not info:
         print(f"❌ 跳过无效视频: {input_path}")
-        return
+        return False
 
     w, h = info['width'], info['height']
     bitrate = info['bitrate_kbps']
+    if w <= 0 or h <= 0:
+        print(f"❌ 视频尺寸无效，跳过: {input_path}")
+        return False
 
     aspect_ok = is_valid_aspect_ratio(w, h)
     res_ok = is_valid_resolution(w, h)
@@ -192,14 +247,15 @@ def process_video(input_path, output_path):
             shutil.copy2(input_path, output_path)
         except Exception as e:
             print(f"❌ 复制失败: {e}")
-        return
+            return False
+        return True
 
     # 延迟导入ffmpeg，减少启动时间
     try:
         import ffmpeg as ffmpeg_lib
     except ImportError:
         print("❌ 未安装 ffmpeg-python，无法处理视频")
-        return
+        return False
 
     src_w, src_h = w, h
     target_w, target_h = TARGET_WIDTH, TARGET_HEIGHT
@@ -243,15 +299,20 @@ def process_video(input_path, output_path):
 
     print(f"🔄 正在处理: {input_path} → {output_path}")
     try:
-        (
+        output_stream = (
             ffmpeg_lib
             .output(*output_args, **output_opts)
             .overwrite_output()
-            .run(cmd=FFMPEG_PATH, quiet=True)
         )
+        command = output_stream.compile(cmd=FFMPEG_PATH)
+        timeout_seconds = get_transcode_timeout_seconds(info)
+        if not run_ffmpeg_with_progress(command, input_path, timeout_seconds):
+            return False
         print(f"✔️ 完成: {output_path}")
+        return True
     except Exception as e:
         print(f"❌ 处理失败 {input_path}: {e}")
+        return False
 
 
 def process_all_videos(input_dir: Path, output_dir: Path):
@@ -260,49 +321,71 @@ def process_all_videos(input_dir: Path, output_dir: Path):
         messagebox.showerror("错误", "输入文件夹不存在！")
         return
 
+    resolved_input_dir = input_dir.resolve()
+    resolved_output_dir = output_dir.resolve()
+    if resolved_input_dir == resolved_output_dir:
+        messagebox.showerror("错误", "输出文件夹不能与输入文件夹相同！")
+        return
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     video_extensions = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv"}
 
     video_list = []
-    
-    for item in input_dir.iterdir():
-        if item.is_file() and item.suffix.lower() in video_extensions:
-            video_list.append((item, Path("")))
-        elif item.is_dir():
-            for sub_item in item.iterdir():
-                if sub_item.is_file() and sub_item.suffix.lower() in video_extensions:
-                    video_list.append((sub_item, item.relative_to(input_dir)))
-                elif sub_item.is_dir():
-                    for sub_sub_item in sub_item.iterdir():
-                        if sub_sub_item.is_file() and sub_sub_item.suffix.lower() in video_extensions:
-                            video_list.append((sub_sub_item, Path(item.name) / sub_item.relative_to(item)))
+
+    for video_file in input_dir.rglob("*"):
+        if not video_file.is_file() or video_file.suffix.lower() not in video_extensions:
+            continue
+
+        resolved_video = video_file.resolve()
+        try:
+            resolved_video.relative_to(resolved_output_dir)
+            continue
+        except ValueError:
+            pass
+
+        rel_path = video_file.parent.resolve().relative_to(resolved_input_dir)
+        video_list.append((video_file, rel_path))
 
     if not video_list:
         messagebox.showinfo("提示", "输入文件夹中没有找到视频文件！")
         return
 
     processed_count = 0
+    failed_count = 0
 
-    for video_file, rel_path in video_list:
-        video_info = get_video_info(str(video_file))
-        has_audio = video_info.get('has_audio', True) if video_info else True
-        
-        if has_audio:
-            output_file = output_dir / rel_path / video_file.name
-        else:
-            output_filename = f"{video_file.stem}_【无音频】【无音频】{video_file.suffix}"
-            output_file = output_dir / rel_path / output_filename
-            print(f"🔇 检测到无音频视频: {video_file.name}")
-            print(f"📝 将添加标识并重命名为: {output_filename}")
-            
-        print(f"\n--- 处理: {video_file.name} ---")
-        if rel_path:
-            print(f"📂 路径: {rel_path}")
-        process_video(str(video_file), str(output_file))
-        processed_count += 1
+    total_count = len(video_list)
+    for index, (video_file, rel_path) in enumerate(video_list, start=1):
+        try:
+            print(f"\n--- 处理({index}/{total_count}): {video_file.name} ---")
+            if rel_path != Path("."):
+                print(f"📂 路径: {rel_path}")
 
-    messagebox.showinfo("完成", f"所有视频处理完毕！\n共处理 {processed_count} 个文件。")
+            video_info = get_video_info(str(video_file))
+            if not video_info:
+                failed_count += 1
+                print(f"❌ 无法读取视频信息，已跳过: {video_file}")
+                continue
+
+            has_audio = video_info.get('has_audio', True)
+
+            if has_audio:
+                output_file = output_dir / rel_path / video_file.name
+            else:
+                output_filename = f"{video_file.stem}_【无音频】{video_file.suffix}"
+                output_file = output_dir / rel_path / output_filename
+                print(f"🔇 检测到无音频视频: {video_file.name}")
+                print(f"📝 将添加标识并重命名为: {output_filename}")
+
+            if process_video(str(video_file), str(output_file), video_info):
+                processed_count += 1
+            else:
+                failed_count += 1
+        except Exception as e:
+            failed_count += 1
+            print(f"❌ 处理异常，已跳过 {video_file}: {e}")
+
+    messagebox.showinfo("完成", f"视频处理完毕！\n成功: {processed_count} 个\n失败/跳过: {failed_count} 个。")
 
 
 # =============== GUI ===============
@@ -325,7 +408,7 @@ def main_gui():
         "│    📍 2. 指定输出目录                            \n"
         "│    📍 3. 等待处理完成                            \n"
         "├────────────────────────────────────────────────┤\n"
-        "│  💡 新增功能：V1.3 支持两层子文件夹递归处理 | 批量处理      \n"
+        "│  💡 新增功能：V1.4 防卡死处理 | macOS M 芯片构建支持       \n"
         "│  📧 问题反馈：lucas6.zju@vip.163.com            \n"
         "├────────────────────────────────────────────────┤\n"
         "│  ⏳ 正在启动工具...                              \n"

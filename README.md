@@ -25,7 +25,10 @@
 
 ### 第一步：下载程序
 
-前往 [Releases](https://github.com/vivalucas/qianchuan_processor/releases) 下载最新版本的 `qianchuan_processor_vX.X.exe`
+前往 [Releases](https://github.com/vivalucas/qianchuan_processor/releases) 下载对应系统的最新版本：
+
+- Windows：`qianchuan_processor_vX.X.exe`
+- macOS Apple Silicon（M 芯片）：`qianchuan_processor_vX.X_macos_arm64.tar.gz`
 
 ### 第二步：运行程序
 
@@ -56,12 +59,20 @@
 
 ## ⚠️ 注意事项
 
-- 无音频的视频会在文件名后添加 `_【无音频】【无音频]` 标识
+- 无音频的视频会在文件名后添加 `_【无音频】` 标识
 - 符合规范的视频会直接复制，处理速度极快
 - 不符合规范的视频会自动裁剪为 1080×1920 并转码
 - 如果视频数量较多，处理时间可能会较长，请耐心等待
 
 ## 📌 版本更新
+
+### v1.4 (2026-05-12)
+- 🛡️ 新增 ffprobe/ffmpeg 超时保护，避免单个异常视频卡住整批处理
+- ⏳ 转码中每 30 秒输出处理状态，方便定位当前卡在哪个文件
+- 📂 子文件夹处理改为完整递归，保持原目录结构
+- 🍎 GitHub Actions 新增 macOS Apple Silicon（M 芯片）构建产物
+- 🐛 修复 Windows 控制台编码导致的崩溃问题
+- 🐛 修复无音频文件名标识重复问题
 
 ### v1.3 (2026-02-28)
 - ✨ 新增支持两层子文件夹递归处理
