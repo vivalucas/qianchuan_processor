@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Qianchuan Processor app icon">
+  <defs>
+    <linearGradient id="bg" x1="176" y1="96" x2="848" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#10b6a7"/>
+      <stop offset="0.54" stop-color="#116a8d"/>
+      <stop offset="1" stop-color="#18324f"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="322" y1="256" x2="702" y2="768" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d7f7f2"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#082032" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="216" fill="url(#bg)"/>
+  <path d="M268 704V320c0-48.6 39.4-88 88-88h312c48.6 0 88 39.4 88 88v384c0 48.6-39.4 88-88 88H356c-48.6 0-88-39.4-88-88Z" fill="#071f2d" opacity="0.2" filter="url(#softShadow)"/>
+  <path d="M304 688V336c0-35.3 28.7-64 64-64h288c35.3 0 64 28.7 64 64v352c0 35.3-28.7 64-64 64H368c-35.3 0-64-28.7-64-64Z" fill="url(#accent)"/>
+  <path d="M378 340h268c13.3 0 24 10.7 24 24v296c0 13.3-10.7 24-24 24H378c-13.3 0-24-10.7-24-24V364c0-13.3 10.7-24 24-24Z" fill="#123450"/>
+  <path d="M566 390 444 512l122 122 42-42-50-50h146v-60H558l50-50-42-42Z" fill="#51ead8"/>
+  <path d="M404 714h216" stroke="#123450" stroke-width="28" stroke-linecap="round" opacity="0.28"/>
+  <circle cx="512" cy="236" r="18" fill="#d7f7f2" opacity="0.85"/>
+</svg>

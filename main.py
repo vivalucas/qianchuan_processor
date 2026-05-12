@@ -53,6 +53,9 @@ TARGET_HEIGHT = 1920
 TARGET_FPS = 30
 TARGET_BITRATE_K = 1000
 MIN_BITRATE_K = 516
+MAX_FILE_SIZE_MB = 1000
+NO_AUDIO_SUFFIX = "_【无音频】"
+APP_VERSION = "1.5.0"
 ASPECT_RATIO_TOL = 0.01
 FFPROBE_TIMEOUT_SECONDS = 60
 TRANSCODE_MIN_TIMEOUT_SECONDS = 10 * 60
@@ -107,6 +110,12 @@ def get_transcode_timeout_seconds(info):
         TRANSCODE_MAX_TIMEOUT_SECONDS,
         max(TRANSCODE_MIN_TIMEOUT_SECONDS, int(duration * 20 + 300))
     )
+
+
+def get_no_audio_output_name(video_file: Path):
+    if video_file.stem.endswith(NO_AUDIO_SUFFIX):
+        return video_file.name
+    return f"{video_file.stem}{NO_AUDIO_SUFFIX}{video_file.suffix}"
 
 
 def run_ffmpeg_with_progress(command, input_path, timeout_seconds):
@@ -186,6 +195,10 @@ def get_video_info(video_path):
             duration_seconds = float(duration_str) if duration_str else 0
         except ValueError:
             duration_seconds = 0
+        try:
+            file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+        except OSError:
+            file_size_mb = 0
 
         return {
             'width': width,
@@ -193,7 +206,8 @@ def get_video_info(video_path):
             'bitrate_kbps': bitrate_kbps,
             'fps': fps,
             'has_audio': has_audio,
-            'duration_seconds': duration_seconds
+            'duration_seconds': duration_seconds,
+            'file_size_mb': file_size_mb
         }
     except subprocess.CalledProcessError as e:
         print(f"⚠️ ffprobe 执行失败 {video_path}: {e}")
@@ -240,15 +254,27 @@ def process_video(input_path, output_path, info=None):
     aspect_ok = is_valid_aspect_ratio(w, h)
     res_ok = is_valid_resolution(w, h)
     bitrate_ok = bitrate >= MIN_BITRATE_K
+    size_ok = info.get('file_size_mb', 0) <= MAX_FILE_SIZE_MB
 
-    if aspect_ok and res_ok and bitrate_ok:
-        print(f"✅ 符合要求，直接复制: {input_path}")
+    if aspect_ok and res_ok and bitrate_ok and size_ok:
+        print(f"✅ 已符合平台要求，直接复制: {input_path}")
         try:
             shutil.copy2(input_path, output_path)
         except Exception as e:
             print(f"❌ 复制失败: {e}")
             return False
         return True
+
+    reasons = []
+    if not aspect_ok:
+        reasons.append("比例不是 9:16")
+    if not res_ok:
+        reasons.append("分辨率不在 720×1280 ~ 1440×2560")
+    if not bitrate_ok:
+        reasons.append(f"码率低于 {MIN_BITRATE_K} kbps")
+    if not size_ok:
+        reasons.append(f"文件大于 {MAX_FILE_SIZE_MB} MB")
+    print(f"🛠️ 需要转换: {'；'.join(reasons)}")
 
     # 延迟导入ffmpeg，减少启动时间
     try:
@@ -276,7 +302,7 @@ def process_video(input_path, output_path, info=None):
         .filter('crop', target_w, target_h, x, y)
     )
 
-    if not bitrate_ok or not aspect_ok or not res_ok:
+    if not bitrate_ok or not aspect_ok or not res_ok or not size_ok:
         video = video.filter('fps', fps=TARGET_FPS)
         output_opts = {
             'vcodec': 'libx264',
@@ -293,6 +319,7 @@ def process_video(input_path, output_path, info=None):
         # 保留音频轨道，不做转码处理
         audio = input_stream.audio
         output_args = [video, audio, output_path]
+        output_opts['acodec'] = 'copy'
     else:
         # 没有音频，只处理视频轨道
         output_args = [video, output_path]
@@ -372,7 +399,7 @@ def process_all_videos(input_dir: Path, output_dir: Path):
             if has_audio:
                 output_file = output_dir / rel_path / video_file.name
             else:
-                output_filename = f"{video_file.stem}_【无音频】{video_file.suffix}"
+                output_filename = get_no_audio_output_name(video_file)
                 output_file = output_dir / rel_path / output_filename
                 print(f"🔇 检测到无音频视频: {video_file.name}")
                 print(f"📝 将添加标识并重命名为: {output_filename}")
@@ -401,14 +428,14 @@ def select_folder(title):
 def main_gui():
     print(
         "┌────────────────────────────────────────────────┐\n"
-        "│  🚀 千川投流视频格式转换工具                     \n"
+        f"│  🚀 千川投流视频格式转换工具 v{APP_VERSION:<18}\n"
         "├────────────────────────────────────────────────┤\n"
         "│    使用说明：                                   \n"
         "│    📍 1. 选择待转换视频所在文件夹                \n"
         "│    📍 2. 指定输出目录                            \n"
         "│    📍 3. 等待处理完成                            \n"
         "├────────────────────────────────────────────────┤\n"
-        "│  💡 新增功能：V1.4 防卡死处理 | macOS M 芯片构建支持       \n"
+        "│  💡 支持递归处理、无音频标识、超时保护和文件大小检查       \n"
         "│  📧 问题反馈：lucas6.zju@vip.163.com            \n"
         "├────────────────────────────────────────────────┤\n"
         "│  ⏳ 正在启动工具...                              \n"

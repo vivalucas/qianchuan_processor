@@ -10,7 +10,10 @@ ffmpeg/
 dist/
 build/
 *.exe
+*.tar.gz
+*.zip
 *.spec
+_temp/
 
 # IDE
 .vscode/
@@ -43,6 +46,9 @@ venv/
 
 # Python 补充
 *.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # js
 node_modules/

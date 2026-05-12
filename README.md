@@ -2,6 +2,8 @@
 
 > 一键将竖屏视频批量转换为符合抖音千川/快手等广告平台要求的竖屏格式
 
+当前版本：`v1.5.0`
+
 ## 📌 视频规范要求
 
 | 参数 | 要求 |
@@ -20,6 +22,7 @@
 - 🔇 **无音频识别** - 自动识别无音频视频并添加标识
 - 📂 **目录保持** - 支持子文件夹递归处理，保持原目录结构
 - 🎁 **开箱即用** - 无需安装 FFmpeg，下载即可使用
+- 🧭 **清晰日志** - 转换时输出当前文件、原因和耗时，方便定位异常素材
 
 ## 🚀 使用方法
 
@@ -27,12 +30,15 @@
 
 前往 [Releases](https://github.com/vivalucas/qianchuan_processor/releases) 下载对应系统的最新版本：
 
-- Windows：`qianchuan_processor_vX.X.exe`
-- macOS Apple Silicon（M 芯片）：`qianchuan_processor_vX.X_macos_arm64.tar.gz`
+- Windows：`qianchuan_processor_vX.X.X.exe`
+- macOS Apple Silicon（M 芯片）：`qianchuan_processor_vX.X.X_macos_arm64.tar.gz`
 
 ### 第二步：运行程序
 
-双击运行 `qianchuan_processor_vX.X.exe`，会弹出文件夹选择对话框
+- Windows：双击运行 `qianchuan_processor_vX.X.X.exe`
+- macOS：解压 `.tar.gz` 后运行其中的可执行文件
+
+程序启动后会弹出文件夹选择对话框。
 
 ### 第三步：选择文件夹
 
@@ -62,9 +68,38 @@
 - 无音频的视频会在文件名后添加 `_【无音频】` 标识
 - 符合规范的视频会直接复制，处理速度极快
 - 不符合规范的视频会自动裁剪为 1080×1920 并转码
+- 大于 1000 MB 的视频会进入转码流程，尽量压缩到平台友好的体积
+- 输出文件夹不能与输入文件夹相同，避免覆盖原始素材
 - 如果视频数量较多，处理时间可能会较长，请耐心等待
 
+## 🛠️ 开发与构建
+
+本项目使用 Python 和 PyInstaller 构建。开发环境建议使用 `uv`：
+
+```bash
+uv sync
+```
+
+本地 Windows 构建示例：
+
+```bash
+uv run pyinstaller --onefile --name qianchuan_processor_v1.5.0 --icon assets/app.ico --add-data "ffmpeg;ffmpeg" --hidden-import=ffmpeg --hidden-import=tkinter --optimize 2 --exclude-module=pip --exclude-module=setuptools --exclude-module=distutils main.py
+```
+
+图标源文件在 `assets/app-icon.svg`，平台图标为 `assets/app.ico` 和 `assets/app.icns`。如需重新生成图标：
+
+```bash
+uv run python tools/create_icons.py
+```
+
 ## 📌 版本更新
+
+### v1.5.0 (2026-05-12)
+- 🎨 新增应用图标，Windows 和 macOS 构建产物会带有清晰的品牌标识
+- 📏 补齐 1000 MB 文件大小检查，README 与实际处理逻辑保持一致
+- 🔊 转码时显式复制音频轨道，避免无意重编码
+- 🧾 优化命令行启动文案和转换原因提示
+- 🧹 优化 `.gitignore` 和项目元数据，减少本地构建产物误提交
 
 ### v1.4 (2026-05-12)
 - 🛡️ 新增 ffprobe/ffmpeg 超时保护，避免单个异常视频卡住整批处理
