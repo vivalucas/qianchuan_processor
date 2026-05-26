@@ -6,11 +6,17 @@ import subprocess
 import json
 import re
 import time
+import threading
+import queue
 from fractions import Fraction
 from pathlib import Path
 
 
 def configure_console_output():
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if hasattr(sys.stderr, "reconfigure"):
@@ -55,7 +61,8 @@ TARGET_BITRATE_K = 1000
 MIN_BITRATE_K = 516
 MAX_FILE_SIZE_MB = 1000
 NO_AUDIO_SUFFIX = "_【无音频】"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.1"
+APP_TITLE = "千川投流视频格式转换工具"
 ASPECT_RATIO_TOL = 0.01
 FFPROBE_TIMEOUT_SECONDS = 60
 TRANSCODE_MIN_TIMEOUT_SECONDS = 10 * 60
@@ -116,6 +123,14 @@ def get_no_audio_output_name(video_file: Path):
     if video_file.stem.endswith(NO_AUDIO_SUFFIX):
         return video_file.name
     return f"{video_file.stem}{NO_AUDIO_SUFFIX}{video_file.suffix}"
+
+
+def get_ui_font():
+    if sys.platform == "win32":
+        return "Microsoft YaHei UI"
+    if sys.platform == "darwin":
+        return "PingFang SC"
+    return "Arial"
 
 
 def run_ffmpeg_with_progress(command, input_path, timeout_seconds):
@@ -313,13 +328,13 @@ def process_video(input_path, output_path, info=None):
     else:
         output_opts = {}
 
-    # 处理音频：如果原视频有音频，保留音频轨道
+    # 转码时统一输出 AAC，避免原音频编码与目标容器不兼容。
     has_audio = info.get('has_audio', False)
     if has_audio:
-        # 保留音频轨道，不做转码处理
         audio = input_stream.audio
         output_args = [video, audio, output_path]
-        output_opts['acodec'] = 'copy'
+        output_opts['acodec'] = 'aac'
+        output_opts['audio_bitrate'] = '128k'
     else:
         # 没有音频，只处理视频轨道
         output_args = [video, output_path]
@@ -343,18 +358,28 @@ def process_video(input_path, output_path, info=None):
 
 
 def process_all_videos(input_dir: Path, output_dir: Path):
-    import_tkinter()
     if not input_dir.exists():
-        messagebox.showerror("错误", "输入文件夹不存在！")
-        return
+        return {
+            'ok': False,
+            'message': "输入文件夹不存在！",
+            'processed': 0,
+            'failed': 0,
+            'total': 0
+        }
 
     resolved_input_dir = input_dir.resolve()
     resolved_output_dir = output_dir.resolve()
     if resolved_input_dir == resolved_output_dir:
-        messagebox.showerror("错误", "输出文件夹不能与输入文件夹相同！")
-        return
+        return {
+            'ok': False,
+            'message': "输出文件夹不能与输入文件夹相同！",
+            'processed': 0,
+            'failed': 0,
+            'total': 0
+        }
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    skip_output_subtree = resolved_output_dir.is_relative_to(resolved_input_dir)
 
     video_extensions = {".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv"}
 
@@ -365,18 +390,20 @@ def process_all_videos(input_dir: Path, output_dir: Path):
             continue
 
         resolved_video = video_file.resolve()
-        try:
-            resolved_video.relative_to(resolved_output_dir)
+        if skip_output_subtree and resolved_video.is_relative_to(resolved_output_dir):
             continue
-        except ValueError:
-            pass
 
         rel_path = video_file.parent.resolve().relative_to(resolved_input_dir)
         video_list.append((video_file, rel_path))
 
     if not video_list:
-        messagebox.showinfo("提示", "输入文件夹中没有找到视频文件！")
-        return
+        return {
+            'ok': True,
+            'message': "输入文件夹中没有找到视频文件！",
+            'processed': 0,
+            'failed': 0,
+            'total': 0
+        }
 
     processed_count = 0
     failed_count = 0
@@ -412,10 +439,222 @@ def process_all_videos(input_dir: Path, output_dir: Path):
             failed_count += 1
             print(f"❌ 处理异常，已跳过 {video_file}: {e}")
 
-    messagebox.showinfo("完成", f"视频处理完毕！\n成功: {processed_count} 个\n失败/跳过: {failed_count} 个。")
+    return {
+        'ok': failed_count == 0,
+        'message': "视频处理完毕！",
+        'processed': processed_count,
+        'failed': failed_count,
+        'total': total_count
+    }
 
 
 # =============== GUI ===============
+class GuiLogWriter:
+    def __init__(self, log_window, stream):
+        self.log_window = log_window
+        self.stream = stream
+
+    def write(self, text):
+        if self.stream:
+            self.stream.write(text)
+            self.stream.flush()
+        self.log_window.write(text)
+
+    def flush(self):
+        if self.stream:
+            self.stream.flush()
+
+
+class ProcessingLogWindow:
+    def __init__(self, input_dir: Path, output_dir: Path):
+        import_tkinter()
+        self.input_dir = input_dir
+        self.output_dir = output_dir
+        self.events = queue.Queue()
+        self.result = None
+
+        self.root = tk.Tk()
+        self.root.title(f"{APP_TITLE} v{APP_VERSION}")
+        self.root.geometry("760x520")
+        self.root.minsize(620, 420)
+        self.root.configure(bg="#f6f8fb")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        ui_font = get_ui_font()
+
+        header = tk.Frame(self.root, bg="#0f766e", padx=18, pady=14)
+        header.pack(fill="x")
+        tk.Label(
+            header,
+            text=APP_TITLE,
+            bg="#0f766e",
+            fg="white",
+            font=(ui_font, 16, "bold")
+        ).pack(anchor="w")
+        tk.Label(
+            header,
+            text="正在处理视频，请不要关闭窗口。进度和异常都会显示在这里。",
+            bg="#0f766e",
+            fg="#d9fffb",
+            font=(ui_font, 10)
+        ).pack(anchor="w", pady=(4, 0))
+
+        summary = tk.Frame(self.root, bg="#f6f8fb", padx=18, pady=12)
+        summary.pack(fill="x")
+        self.status_var = tk.StringVar(value="准备开始...")
+        tk.Label(
+            summary,
+            textvariable=self.status_var,
+            bg="#f6f8fb",
+            fg="#1f2937",
+            font=(ui_font, 11, "bold")
+        ).pack(anchor="w")
+        tk.Label(
+            summary,
+            text=f"输入：{self.input_dir}\n输出：{self.output_dir}",
+            bg="#f6f8fb",
+            fg="#4b5563",
+            justify="left",
+            font=(ui_font, 9)
+        ).pack(anchor="w", pady=(6, 0))
+
+        log_frame = tk.Frame(self.root, bg="#111827", padx=0, pady=0)
+        log_frame.pack(fill="both", expand=True, padx=18, pady=(0, 14))
+        scrollbar = tk.Scrollbar(log_frame)
+        scrollbar.pack(side="right", fill="y")
+        self.log_text = tk.Text(
+            log_frame,
+            bg="#111827",
+            fg="#e5e7eb",
+            insertbackground="#e5e7eb",
+            relief="flat",
+            wrap="word",
+            padx=12,
+            pady=10,
+            font=("Consolas", 10),
+            yscrollcommand=scrollbar.set
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.configure(state="disabled")
+        scrollbar.configure(command=self.log_text.yview)
+
+        footer = tk.Frame(self.root, bg="#f6f8fb", padx=18, pady=(0, 14))
+        footer.pack(fill="x")
+        self.close_button = tk.Button(
+            footer,
+            text="处理中...",
+            state="disabled",
+            command=self.root.destroy,
+            padx=18,
+            pady=6
+        )
+        self.close_button.pack(side="right")
+
+    def write(self, text):
+        if text:
+            self.events.put(("log", text))
+
+    def start(self):
+        threading.Thread(target=self._worker, daemon=True).start()
+        self.root.after(80, self._poll_events)
+        self.root.mainloop()
+        return self.result
+
+    def _worker(self):
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        sys.stdout = GuiLogWriter(self, original_stdout)
+        sys.stderr = GuiLogWriter(self, original_stderr)
+        try:
+            print("开始处理视频...")
+            result = process_all_videos(self.input_dir, self.output_dir)
+            self.events.put(("done", result))
+        except Exception as exc:
+            print(f"❌ 处理过程发生异常: {exc}")
+            self.events.put(("done", {
+                'ok': False,
+                'message': f"处理过程发生异常: {exc}",
+                'processed': 0,
+                'failed': 1,
+                'total': 0
+            }))
+        finally:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+
+    def _poll_events(self):
+        while True:
+            try:
+                event, payload = self.events.get_nowait()
+            except queue.Empty:
+                break
+
+            if event == "log":
+                self._append_log(payload)
+            elif event == "done":
+                self.result = payload
+                self._finish(payload)
+
+        self.root.after(80, self._poll_events)
+
+    def _append_log(self, text):
+        progress_match = re.search(r"处理\((\d+)/(\d+)\):\s*(.+?)\s*---", text)
+        if progress_match:
+            current, total, filename = progress_match.groups()
+            self.status_var.set(f"正在处理 {current}/{total}: {filename}")
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", text)
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
+
+    def _finish(self, result):
+        processed = result.get('processed', 0)
+        failed = result.get('failed', 0)
+        total = result.get('total', 0)
+        self.status_var.set(f"{result.get('message', '处理完成')} 成功 {processed} 个，失败/跳过 {failed} 个，总计 {total} 个。")
+        self.close_button.configure(text="关闭", state="normal")
+        messagebox.showinfo(
+            "完成",
+            f"{result.get('message', '处理完成')}\n成功: {processed} 个\n失败/跳过: {failed} 个\n总计: {total} 个"
+        )
+
+    def on_close(self):
+        if self.close_button["state"] == "normal":
+            self.root.destroy()
+        else:
+            messagebox.showinfo("正在处理", "视频仍在处理中，请等待完成后再关闭。")
+
+
+def print_banner():
+    print(
+        "\n"
+        "============================================================\n"
+        f"  {APP_TITLE} v{APP_VERSION}\n"
+        "============================================================\n"
+        "  1. 选择待转换视频所在文件夹\n"
+        "  2. 指定输出目录\n"
+        "  3. 等待处理完成；处理过程会显示在程序日志窗口中\n"
+        "\n"
+        "  支持递归处理、无音频标识、超时保护和文件大小检查\n"
+        "  问题反馈：lucas6.zju@vip.163.com\n"
+        "============================================================\n"
+    )
+
+
+def show_startup_guide():
+    import_tkinter()
+    root = tk.Tk()
+    root.withdraw()
+    messagebox.showinfo(
+        f"{APP_TITLE} v{APP_VERSION}",
+        "使用步骤：\n"
+        "1. 选择包含待转换视频的输入文件夹\n"
+        "2. 选择处理后视频的输出文件夹\n"
+        "3. 等待处理完成\n\n"
+        "处理过程中会显示实时日志，请以程序里的日志窗口为准。"
+    )
+    root.destroy()
+
+
 def select_folder(title):
     import_tkinter()
     root = tk.Tk()
@@ -426,21 +665,8 @@ def select_folder(title):
 
 
 def main_gui():
-    print(
-        "┌────────────────────────────────────────────────┐\n"
-        f"│  🚀 千川投流视频格式转换工具 v{APP_VERSION:<18}\n"
-        "├────────────────────────────────────────────────┤\n"
-        "│    使用说明：                                   \n"
-        "│    📍 1. 选择待转换视频所在文件夹                \n"
-        "│    📍 2. 指定输出目录                            \n"
-        "│    📍 3. 等待处理完成                            \n"
-        "├────────────────────────────────────────────────┤\n"
-        "│  💡 支持递归处理、无音频标识、超时保护和文件大小检查       \n"
-        "│  📧 问题反馈：lucas6.zju@vip.163.com            \n"
-        "├────────────────────────────────────────────────┤\n"
-        "│  ⏳ 正在启动工具...                              \n"
-        "└────────────────────────────────────────────────┘"
-    )
+    print_banner()
+    show_startup_guide()
     input_folder = select_folder("请选择输入视频文件夹")
     if not input_folder:
         print("未选择输入文件夹，退出。")
@@ -454,7 +680,7 @@ def main_gui():
     print(f"输入: {input_folder}")
     print(f"输出: {output_folder}")
 
-    process_all_videos(Path(input_folder), Path(output_folder))
+    ProcessingLogWindow(Path(input_folder), Path(output_folder)).start()
 
 
 if __name__ == "__main__":

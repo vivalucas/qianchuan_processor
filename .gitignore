@@ -11,6 +11,7 @@ dist/
 build/
 *.exe
 *.tar.gz
+*.dmg
 *.zip
 *.spec
 _temp/

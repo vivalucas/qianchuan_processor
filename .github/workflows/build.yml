@@ -33,7 +33,7 @@ jobs:
           copy "$($binDir.FullName)\ffprobe.exe" ffmpeg\
       - name: Build executable
         run: |
-          pyinstaller --onefile `
+          pyinstaller --onefile --windowed `
             --name qianchuan_processor_${{ github.ref_name }} `
             --icon assets/app.ico `
             --add-data "ffmpeg;ffmpeg" `
@@ -75,10 +75,10 @@ jobs:
           chmod +x ffmpeg/ffmpeg ffmpeg/ffprobe
           file ffmpeg/ffmpeg
           file ffmpeg/ffprobe
-      - name: Build macOS arm64 executable
+      - name: Build macOS arm64 app bundle
         run: |
-          pyinstaller --onefile \
-            --name qianchuan_processor_${{ github.ref_name }}_macos_arm64 \
+          pyinstaller --onedir --windowed \
+            --name "千川处理器" \
             --icon assets/app.icns \
             --add-data "ffmpeg:ffmpeg" \
             --hidden-import=ffmpeg \
@@ -88,13 +88,20 @@ jobs:
             --exclude-module=setuptools \
             --exclude-module=distutils \
             main.py
-          chmod +x dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64
-          tar -czf dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.tar.gz -C dist qianchuan_processor_${{ github.ref_name }}_macos_arm64
-      - name: Upload artifact
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_root
+          cp -R "dist/千川处理器.app" dmg_root/
+          ln -s /Applications dmg_root/Applications
+          hdiutil create -volname "千川处理器" \
+            -srcfolder dmg_root \
+            -ov -format UDZO \
+            "dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.dmg"
+      - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: qianchuan_processor-macos-arm64-${{ github.ref_name }}
-          path: dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.tar.gz
+          path: dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.dmg
 
   release:
     needs: [build-windows, build-macos-arm64]
@@ -118,5 +125,5 @@ jobs:
         with:
           files: |
             dist/qianchuan_processor_${{ github.ref_name }}.exe
-            dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.tar.gz
+            dist/qianchuan_processor_${{ github.ref_name }}_macos_arm64.dmg
           generate_release_notes: true
